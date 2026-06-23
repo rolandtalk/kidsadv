@@ -80,6 +80,108 @@ export default function App() {
   const [editedText, setEditedText] = useState<string>('');
   const [editedPrompt, setEditedPrompt] = useState<string>('');
 
+  // Cross-device sync states
+  const [syncKey, setSyncKey] = useState<string>(() => localStorage.getItem('gemini_sync_key') || '');
+  const [tempSyncKey, setTempSyncKey] = useState<string>('');
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'error'>('idle');
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [showSyncModal, setShowSyncModal] = useState<boolean>(false);
+
+  // Merge two library lists (resolving duplicate IDs by timestamp)
+  const mergeLibraries = (local: BookWithMetadata[], remote: BookWithMetadata[]): BookWithMetadata[] => {
+    const mergedMap = new Map<string, BookWithMetadata>();
+
+    // Add all local books first
+    for (const book of local) {
+      mergedMap.set(book.id, book);
+    }
+
+    // Merge remote books
+    for (const book of remote) {
+      const existing = mergedMap.get(book.id);
+      if (!existing) {
+        mergedMap.set(book.id, book);
+      } else {
+        const localTime = existing.timestamp || 0;
+        const remoteTime = book.timestamp || 0;
+        if (remoteTime > localTime) {
+          mergedMap.set(book.id, book);
+        }
+      }
+    }
+
+    const mergedList = Array.from(mergedMap.values());
+    mergedList.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    return mergedList;
+  };
+
+  // Push library to sync server
+  const pushLibraryToCloud = async (key: string, books: BookWithMetadata[]) => {
+    if (!key) return;
+    try {
+      const response = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, books })
+      });
+      const data = await response.json();
+      if (data.error === 'KV_NOT_BOUND') {
+        setSyncStatus('error');
+        setSyncError("Cloudflare KV database not configured. Please bind a KV namespace named 'LIBRARY_KV' in your Cloudflare dashboard under project Settings > Functions > KV namespace bindings to enable sync.");
+      }
+    } catch (e: any) {
+      console.error('Failed to push library to sync server:', e);
+      setSyncStatus('error');
+      setSyncError(e.message || 'Network error syncing library');
+    }
+  };
+
+  // Synchronize local library with KV storage
+  const syncLibrary = async (key: string) => {
+    if (!key) return;
+    setSyncStatus('syncing');
+    setSyncError(null);
+    try {
+      const response = await fetch(`/api/sync?key=${encodeURIComponent(key)}`);
+      const remoteBooks = await response.json();
+      
+      if (remoteBooks && remoteBooks.error === 'KV_NOT_BOUND') {
+        setSyncStatus('error');
+        setSyncError("Cloudflare KV database not configured. Please bind a KV namespace named 'LIBRARY_KV' in your Cloudflare dashboard under project Settings > Functions > KV namespace bindings to enable sync.");
+        return;
+      }
+
+      if (Array.isArray(remoteBooks)) {
+        const localBooks = await getBooksDB();
+        const mergedBooks = mergeLibraries(localBooks, remoteBooks);
+        
+        // Save all merged books to IndexedDB
+        for (const book of mergedBooks) {
+          await saveBookDB(book);
+        }
+        
+        setLibrary(mergedBooks);
+        
+        // Push merged database back to cloud
+        await pushLibraryToCloud(key, mergedBooks);
+        setSyncStatus('idle');
+      } else {
+        throw new Error('Received invalid sync data format');
+      }
+    } catch (e: any) {
+      console.error('Sync failed:', e);
+      setSyncStatus('error');
+      setSyncError(e.message || 'Sync failed due to a network or server issue.');
+    }
+  };
+
+  // Trigger sync on load or when sync key is changed
+  useEffect(() => {
+    if (syncKey) {
+      syncLibrary(syncKey);
+    }
+  }, [syncKey]);
+
   // Load API Key & Library on startup
   useEffect(() => {
     const savedKey = localStorage.getItem('gemini_api_key');
@@ -234,6 +336,9 @@ export default function App() {
       await saveBookDB(newBook);
       const updatedLibrary = [newBook, ...library];
       setLibrary(updatedLibrary);
+      if (syncKey) {
+        await pushLibraryToCloud(syncKey, updatedLibrary);
+      }
 
       // Display the book
       setCurrentBook(newBook);
@@ -321,6 +426,9 @@ export default function App() {
       await saveBookDB(updatedBook);
       const updatedLibrary = library.map(b => b.id === updatedBook.id ? updatedBook : b);
       setLibrary(updatedLibrary);
+      if (syncKey) {
+        await pushLibraryToCloud(syncKey, updatedLibrary);
+      }
     } catch (e) {
       console.error('Failed to update book', e);
     }
@@ -360,6 +468,9 @@ export default function App() {
       await deleteBookDB(id);
       const updatedLibrary = library.filter(b => b.id !== id);
       setLibrary(updatedLibrary);
+      if (syncKey) {
+        await pushLibraryToCloud(syncKey, updatedLibrary);
+      }
       if (currentBook?.id === id) {
         setCurrentBook(null);
       }
@@ -566,6 +677,9 @@ export default function App() {
         // Reload library from IndexedDB
         const updated = await getBooksDB();
         setLibrary(updated);
+        if (syncKey) {
+          await pushLibraryToCloud(syncKey, updated);
+        }
         
         alert(`Successfully imported ${count} new book(s) into your library!`);
       } catch (err: any) {
@@ -1021,6 +1135,27 @@ export default function App() {
                 <div style={{ display: 'flex', gap: '10px' }} className="no-print">
                   <button 
                     className="btn btn-secondary" 
+                    style={{ 
+                      padding: '6px 12px', 
+                      fontSize: '0.85rem', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: '6px',
+                      borderColor: syncKey ? 'var(--primary)' : 'var(--border-glass)',
+                      color: syncKey ? 'var(--primary)' : 'inherit'
+                    }}
+                    onClick={() => {
+                      setTempSyncKey(syncKey);
+                      setShowSyncModal(true);
+                    }}
+                    title="Synchronize your library across devices"
+                  >
+                    <RefreshCw size={14} className={syncStatus === 'syncing' ? 'spin' : ''} />
+                    {syncKey ? 'Sync Active' : 'Sync Library'}
+                  </button>
+
+                  <button 
+                    className="btn btn-secondary" 
                     style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}
                     onClick={handleExportLibraryJSON}
                     title="Backup all stories to a JSON file"
@@ -1200,6 +1335,97 @@ export default function App() {
               >
                 Delete
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LIBRARY SYNC MODAL */}
+      {showSyncModal && (
+        <div className="modal-overlay no-print">
+          <div className="glass-panel modal-content" style={{ maxWidth: '480px' }}>
+            <h3 style={{ fontSize: '1.3rem', fontWeight: 600, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <RefreshCw style={{ color: 'var(--primary)' }} />
+              Sync Library Across Devices
+            </h3>
+            
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: '1.5' }}>
+              Synchronize your storybook collection across multiple devices (e.g. tablet, phone, laptop) using a private Sync Key passphrase.
+            </p>
+
+            <div className="form-group" style={{ marginBottom: '20px' }}>
+              <label className="form-label">Private Sync Key</label>
+              <input 
+                type="text" 
+                className="form-input" 
+                placeholder="e.g. roland-adventures-key" 
+                value={tempSyncKey}
+                onChange={(e) => setTempSyncKey(e.target.value)}
+              />
+              <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '6px', lineHeight: '1.4' }}>
+                Use a unique, long passphrase to keep your database private. Enter this exact key on other devices to merge and sync libraries automatically.
+              </small>
+            </div>
+
+            {syncError && (
+              <div style={{ display: 'flex', gap: '8px', color: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', padding: '12px', borderRadius: '8px', marginBottom: '20px', fontSize: '0.85rem', lineHeight: '1.4' }}>
+                <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                <span>{syncError}</span>
+              </div>
+            )}
+
+            {syncKey && syncStatus === 'idle' && (
+              <div style={{ color: '#22c55e', backgroundColor: 'rgba(34, 197, 94, 0.1)', padding: '12px', borderRadius: '8px', marginBottom: '20px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Check size={16} />
+                <span>Sync is active! Your library is automatically backed up and synced.</span>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                {syncKey && (
+                  <button 
+                    className="btn btn-secondary"
+                    style={{ color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.2)' }}
+                    onClick={() => {
+                      localStorage.removeItem('gemini_sync_key');
+                      setSyncKey('');
+                      setTempSyncKey('');
+                      setSyncError(null);
+                      setSyncStatus('idle');
+                      setShowSyncModal(false);
+                    }}
+                  >
+                    Disconnect Sync
+                  </button>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={() => {
+                    setShowSyncModal(false);
+                    setSyncError(null);
+                  }}
+                >
+                  Close
+                </button>
+                <button 
+                  className="btn btn-primary" 
+                  disabled={!tempSyncKey.trim() || syncStatus === 'syncing'}
+                  onClick={async () => {
+                    const cleanKey = tempSyncKey.trim();
+                    localStorage.setItem('gemini_sync_key', cleanKey);
+                    setSyncKey(cleanKey);
+                    await syncLibrary(cleanKey);
+                    if (syncStatus !== 'error') {
+                      setShowSyncModal(false);
+                    }
+                  }}
+                >
+                  {syncStatus === 'syncing' ? 'Syncing...' : 'Activate & Sync'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -167,18 +167,23 @@ export async function searchLexicaImage(prompt: string): Promise<string> {
   const cleanPrompt = prompt.split(',')[0].slice(0, 100);
   const url = `/api/search-lexica?q=${encodeURIComponent(cleanPrompt)}`;
   
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Lexica Search API Error: ${response.status}`);
-  }
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.warn(`Lexica API returned status ${response.status}. Falling back to Pollinations AI.`);
+      return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=800&height=600&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
+    }
 
-  const data = await response.json();
-  if (data.images && data.images.length > 0) {
-    // Select one of the top 3 images for some variety
-    const randomIndex = Math.min(Math.floor(Math.random() * 3), data.images.length - 1);
-    return data.images[randomIndex].src;
+    const data = await response.json();
+    if (data.images && data.images.length > 0) {
+      // Select one of the top 3 images for some variety
+      const randomIndex = Math.min(Math.floor(Math.random() * 3), data.images.length - 1);
+      return data.images[randomIndex].src;
+    }
+    throw new Error("No images found matching prompt on Lexica");
+  } catch (e) {
+    console.warn("Lexica search failed. Falling back to Pollinations AI:", e);
+    return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=800&height=600&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
   }
-  
-  throw new Error("No images found matching prompt on Lexica");
 }
 
