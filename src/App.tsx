@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import type { ChangeEvent } from 'react';
 import { 
   BookOpen, 
   Sparkles, 
@@ -505,6 +506,63 @@ export default function App() {
     document.body.removeChild(link);
   };
 
+  // Export entire library to JSON file
+  const handleExportLibraryJSON = () => {
+    if (library.length === 0) {
+      alert("No books in library to export.");
+      return;
+    }
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(library, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `adventure_forge_library_${new Date().toISOString().slice(0, 10)}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    document.body.removeChild(downloadAnchor);
+  };
+
+  // Import library from JSON file
+  const handleImportLibraryJSON = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const imported = JSON.parse(e.target?.result as string);
+        if (!Array.isArray(imported)) {
+          throw new Error("Imported file is not a valid library array.");
+        }
+        
+        setLoading(true);
+        setLoadingStep("Importing stories into library...");
+        
+        let count = 0;
+        for (const book of imported) {
+          if (book.title && book.pages && book.config) {
+            // Verify if book already exists in library to avoid duplication
+            if (!library.some(b => b.id === book.id)) {
+              await saveBookDB(book);
+              count++;
+            }
+          }
+        }
+        
+        // Reload library from IndexedDB
+        const updated = await getBooksDB();
+        setLibrary(updated);
+        
+        alert(`Successfully imported ${count} new book(s) into your library!`);
+      } catch (err: any) {
+        console.error(err);
+        alert("Failed to import library: " + err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    reader.readAsText(file);
+  };
+
   // Get current page illustration image URL
   const getImageUrl = (page: StoryPage, idx: number) => {
     if (!currentBook) return '';
@@ -939,9 +997,38 @@ export default function App() {
 
             {/* LIBRARY / PAST ADVENTURES LIST */}
             <div className="glass-panel" style={{ padding: '32px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-                <BookOpen size={24} style={{ color: 'var(--primary)' }} />
-                <h3 style={{ fontSize: '1.4rem', fontWeight: 600 }}>Your Storybook Library ({library.length})</h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: '24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <BookOpen size={24} style={{ color: 'var(--primary)' }} />
+                  <h3 style={{ fontSize: '1.4rem', fontWeight: 600, margin: 0 }}>Your Storybook Library ({library.length})</h3>
+                </div>
+                
+                <div style={{ display: 'flex', gap: '10px' }} className="no-print">
+                  <button 
+                    className="btn btn-secondary" 
+                    style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    onClick={handleExportLibraryJSON}
+                    title="Backup all stories to a JSON file"
+                  >
+                    <Download size={14} />
+                    Export Backup
+                  </button>
+                  
+                  <label 
+                    className="btn btn-secondary" 
+                    style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
+                    title="Restore stories from a backup JSON file"
+                  >
+                    <Plus size={14} />
+                    Import Backup
+                    <input 
+                      type="file" 
+                      accept=".json" 
+                      onChange={handleImportLibraryJSON} 
+                      style={{ display: 'none' }} 
+                    />
+                  </label>
+                </div>
               </div>
 
               {library.length === 0 ? (
