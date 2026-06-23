@@ -165,7 +165,7 @@ export async function generateImage(apiKey: string, prompt: string, model: strin
 export async function searchLexicaImage(prompt: string): Promise<string> {
   // Use a shorter version of the prompt if it's too long, focusing on key elements
   const cleanPrompt = prompt.split(',')[0].slice(0, 100);
-  const url = `https://lexica.art/api/v1/search?q=${encodeURIComponent(cleanPrompt)}`;
+  const url = `/api/search-lexica?q=${encodeURIComponent(cleanPrompt)}`;
   
   const response = await fetch(url);
   if (!response.ok) {
