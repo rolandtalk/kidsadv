@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Custom temporary/debug folders
+.chrome_profile
+.dev.vars
+.wrangler
+
