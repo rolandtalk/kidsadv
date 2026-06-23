@@ -81,11 +81,9 @@ export default function App() {
   const [editedPrompt, setEditedPrompt] = useState<string>('');
 
   // Cross-device sync states
-  const [syncKey, setSyncKey] = useState<string>(() => localStorage.getItem('gemini_sync_key') || '');
-  const [tempSyncKey, setTempSyncKey] = useState<string>('');
+  const syncKey = 'verify-mcp-sync-keyverify-mcp-sync-key';
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'error'>('idle');
   const [syncError, setSyncError] = useState<string | null>(null);
-  const [showSyncModal, setShowSyncModal] = useState<boolean>(false);
 
   // Merge two library lists (resolving duplicate IDs by timestamp)
   const mergeLibraries = (local: BookWithMetadata[], remote: BookWithMetadata[]): BookWithMetadata[] => {
@@ -1141,17 +1139,17 @@ export default function App() {
                       display: 'flex', 
                       alignItems: 'center', 
                       gap: '6px',
-                      borderColor: syncKey ? 'var(--primary)' : 'var(--border-glass)',
-                      color: syncKey ? 'var(--primary)' : 'inherit'
+                      borderColor: 'var(--primary)',
+                      color: 'var(--primary)'
                     }}
                     onClick={() => {
-                      setTempSyncKey(syncKey);
-                      setShowSyncModal(true);
+                      syncLibrary(syncKey);
                     }}
-                    title="Synchronize your library across devices"
+                    title="Force refresh synchronization with server"
+                    disabled={syncStatus === 'syncing'}
                   >
                     <RefreshCw size={14} className={syncStatus === 'syncing' ? 'spin' : ''} />
-                    {syncKey ? 'Sync Active' : 'Sync Library'}
+                    {syncStatus === 'syncing' ? 'Syncing...' : 'Sync Active'}
                   </button>
 
                   <button 
@@ -1180,6 +1178,23 @@ export default function App() {
                   </label>
                 </div>
               </div>
+
+              {syncError && (
+                <div style={{ 
+                  display: 'flex', 
+                  gap: '8px', 
+                  color: '#ef4444', 
+                  backgroundColor: 'rgba(239, 68, 68, 0.1)', 
+                  padding: '12px', 
+                  borderRadius: '8px', 
+                  marginBottom: '20px', 
+                  fontSize: '0.85rem', 
+                  lineHeight: '1.4' 
+                }}>
+                  <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                  <span>{syncError}</span>
+                </div>
+              )}
 
               {library.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
@@ -1340,96 +1355,7 @@ export default function App() {
         </div>
       )}
 
-      {/* LIBRARY SYNC MODAL */}
-      {showSyncModal && (
-        <div className="modal-overlay no-print">
-          <div className="glass-panel modal-content" style={{ maxWidth: '480px' }}>
-            <h3 style={{ fontSize: '1.3rem', fontWeight: 600, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <RefreshCw style={{ color: 'var(--primary)' }} />
-              Sync Library Across Devices
-            </h3>
-            
-            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: '1.5' }}>
-              Synchronize your storybook collection across multiple devices (e.g. tablet, phone, laptop) using a private Sync Key passphrase.
-            </p>
 
-            <div className="form-group" style={{ marginBottom: '20px' }}>
-              <label className="form-label">Private Sync Key</label>
-              <input 
-                type="text" 
-                className="form-input" 
-                placeholder="e.g. roland-adventures-key" 
-                value={tempSyncKey}
-                onChange={(e) => setTempSyncKey(e.target.value)}
-              />
-              <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '6px', lineHeight: '1.4' }}>
-                Use a unique, long passphrase to keep your database private. Enter this exact key on other devices to merge and sync libraries automatically.
-              </small>
-            </div>
-
-            {syncError && (
-              <div style={{ display: 'flex', gap: '8px', color: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', padding: '12px', borderRadius: '8px', marginBottom: '20px', fontSize: '0.85rem', lineHeight: '1.4' }}>
-                <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
-                <span>{syncError}</span>
-              </div>
-            )}
-
-            {syncKey && syncStatus === 'idle' && (
-              <div style={{ color: '#22c55e', backgroundColor: 'rgba(34, 197, 94, 0.1)', padding: '12px', borderRadius: '8px', marginBottom: '20px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Check size={16} />
-                <span>Sync is active! Your library is automatically backed up and synced.</span>
-              </div>
-            )}
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-              <div>
-                {syncKey && (
-                  <button 
-                    className="btn btn-secondary"
-                    style={{ color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.2)' }}
-                    onClick={() => {
-                      localStorage.removeItem('gemini_sync_key');
-                      setSyncKey('');
-                      setTempSyncKey('');
-                      setSyncError(null);
-                      setSyncStatus('idle');
-                      setShowSyncModal(false);
-                    }}
-                  >
-                    Disconnect Sync
-                  </button>
-                )}
-              </div>
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <button 
-                  className="btn btn-secondary" 
-                  onClick={() => {
-                    setShowSyncModal(false);
-                    setSyncError(null);
-                  }}
-                >
-                  Close
-                </button>
-                <button 
-                  className="btn btn-primary" 
-                  disabled={!tempSyncKey.trim() || syncStatus === 'syncing'}
-                  onClick={async () => {
-                    const cleanKey = tempSyncKey.trim();
-                    localStorage.setItem('gemini_sync_key', cleanKey);
-                    setSyncKey(cleanKey);
-                    await syncLibrary(cleanKey);
-                    if (syncStatus !== 'error') {
-                      setShowSyncModal(false);
-                    }
-                  }}
-                >
-                  {syncStatus === 'syncing' ? 'Syncing...' : 'Activate & Sync'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
