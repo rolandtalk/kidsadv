@@ -44,6 +44,7 @@ export default function App() {
   const [showKeyModal, setShowKeyModal] = useState<boolean>(false);
   const [tempKey, setTempKey] = useState<string>('');
   const [bookToDelete, setBookToDelete] = useState<BookWithMetadata | null>(null);
+  const [serverHasKey, setServerHasKey] = useState<boolean>(false);
 
   // Setup Wizard State
   const [theme, setTheme] = useState<string>('Fantasy');
@@ -85,9 +86,23 @@ export default function App() {
     if (savedKey) {
       setApiKey(savedKey);
       setTempKey(savedKey);
-    } else {
-      setShowKeyModal(true);
     }
+
+    // Check server key configuration
+    fetch('/api/config')
+      .then(res => res.json())
+      .then((data: any) => {
+        setServerHasKey(data.hasKey);
+        if (!data.hasKey && !savedKey) {
+          setShowKeyModal(true);
+        }
+      })
+      .catch(err => {
+        console.error('Failed to fetch server config:', err);
+        if (!savedKey) {
+          setShowKeyModal(true);
+        }
+      });
 
     const loadLibrary = async () => {
       try {
@@ -142,7 +157,7 @@ export default function App() {
 
   // Generate Book Action
   const handleGenerateBook = async () => {
-    if (!apiKey) {
+    if (!apiKey && !serverHasKey) {
       setShowKeyModal(true);
       return;
     }
@@ -241,7 +256,7 @@ export default function App() {
       : (selectedTheme ? selectedTheme.promptStyle : (customStyle || 'children\'s book illustration'));
 
     if (imageGenerator === 'gemini') {
-      if (!apiKey) {
+      if (!apiKey && !serverHasKey) {
         setShowKeyModal(true);
         return;
       }
@@ -596,11 +611,11 @@ export default function App() {
                 setShowKeyModal(true);
               }
             }}
-            title={apiKey ? "Clear Gemini API Key" : "Configure Gemini API Key"}
+            title={apiKey ? "Clear Gemini API Key" : (serverHasKey ? "Configure Custom API Key" : "Configure Gemini API Key")}
             style={{ padding: '8px 16px', fontSize: '0.9rem' }}
           >
             <Key size={16} />
-            {apiKey ? 'Clear Key' : 'Setup API Key'}
+            {apiKey ? 'Clear Custom Key' : (serverHasKey ? 'Use Custom Key' : 'Setup API Key')}
           </button>
           
           {currentBook && (
@@ -1138,7 +1153,7 @@ export default function App() {
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              {apiKey && (
+              {(apiKey || serverHasKey) && (
                 <button className="btn btn-secondary" onClick={() => setShowKeyModal(false)}>
                   Cancel
                 </button>

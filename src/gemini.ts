@@ -23,7 +23,7 @@ export interface GeneratedBook {
 }
 
 export async function generateStory(apiKey: string, config: StoryConfig, model: string = 'gemini-2.5-flash'): Promise<GeneratedBook> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const url = `/api/generate-story`;
 
   const companionSection = config.companionName 
     ? `- Companion Name: ${config.companionName}\n- Companion Description: ${config.companionDescription || 'N/A'}`
@@ -55,43 +55,51 @@ Guidelines:
 4. Output the result in JSON format matching the schema.
   `.trim();
 
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (apiKey) {
+    headers['x-gemini-api-key'] = apiKey;
+  }
+
   const response = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({
-      contents: [
-        {
-          parts: [
-            {
-              text: promptText,
-            },
-          ],
-        },
-      ],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: 'OBJECT',
-          properties: {
-            title: { type: 'STRING' },
-            pages: {
-              type: 'ARRAY',
-              items: {
-                type: 'OBJECT',
-                properties: {
-                  pageNumber: { type: 'INTEGER' },
-                  storyText: { type: 'STRING' },
-                  illustrationPrompt: { type: 'STRING' },
+      model,
+      payload: {
+        contents: [
+          {
+            parts: [
+              {
+                text: promptText,
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'OBJECT',
+            properties: {
+              title: { type: 'STRING' },
+              pages: {
+                type: 'ARRAY',
+                items: {
+                  type: 'OBJECT',
+                  properties: {
+                    pageNumber: { type: 'INTEGER' },
+                    storyText: { type: 'STRING' },
+                    illustrationPrompt: { type: 'STRING' },
+                  },
+                  required: ['pageNumber', 'storyText', 'illustrationPrompt'],
                 },
-                required: ['pageNumber', 'storyText', 'illustrationPrompt'],
               },
             },
+            required: ['title', 'pages'],
           },
-          required: ['title', 'pages'],
         },
-      },
+      }
     }),
   });
 
@@ -111,23 +119,31 @@ Guidelines:
 }
 
 export async function generateImage(apiKey: string, prompt: string, model: string = 'gemini-2.5-flash-image'): Promise<string> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const url = `/api/generate-image`;
   
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json'
+  };
+  if (apiKey) {
+    headers['x-gemini-api-key'] = apiKey;
+  }
+
   const response = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
+    headers,
     body: JSON.stringify({
-      contents: [
-        {
-          parts: [
-            {
-              text: prompt
-            }
-          ]
-        }
-      ]
+      model,
+      payload: {
+        contents: [
+          {
+            parts: [
+              {
+                text: prompt
+              }
+            ]
+          }
+        ]
+      }
     })
   });
 
