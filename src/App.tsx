@@ -43,6 +43,7 @@ export default function App() {
   const [apiKey, setApiKey] = useState<string>('');
   const [showKeyModal, setShowKeyModal] = useState<boolean>(false);
   const [tempKey, setTempKey] = useState<string>('');
+  const [bookToDelete, setBookToDelete] = useState<BookWithMetadata | null>(null);
 
   // Setup Wizard State
   const [theme, setTheme] = useState<string>('Fantasy');
@@ -340,17 +341,16 @@ export default function App() {
 
   // Delete Book
   const handleDeleteBook = async (id: string) => {
-    if (confirm('Are you sure you want to delete this adventure forever?')) {
-      try {
-        await deleteBookDB(id);
-        const updatedLibrary = library.filter(b => b.id !== id);
-        setLibrary(updatedLibrary);
-        if (currentBook?.id === id) {
-          setCurrentBook(null);
-        }
-      } catch (e) {
-        console.error('Failed to delete book', e);
+    try {
+      await deleteBookDB(id);
+      const updatedLibrary = library.filter(b => b.id !== id);
+      setLibrary(updatedLibrary);
+      if (currentBook?.id === id) {
+        setCurrentBook(null);
       }
+    } catch (e: any) {
+      console.error('Failed to delete book', e);
+      alert('Failed to delete book: ' + (e.message || e));
     }
   };
 
@@ -1091,7 +1091,7 @@ export default function App() {
                             <button 
                               className="btn btn-secondary" 
                               style={{ padding: '8px', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.2)' }}
-                              onClick={() => handleDeleteBook(book.id)}
+                              onClick={() => setBookToDelete(book)}
                               title="Delete book"
                             >
                               <Trash2 size={14} />
@@ -1149,6 +1149,41 @@ export default function App() {
                 disabled={!tempKey.trim()}
               >
                 Save & Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE CONFIRMATION MODAL */}
+      {bookToDelete && (
+        <div className="modal-overlay no-print">
+          <div className="glass-panel modal-content" style={{ maxWidth: '400px' }}>
+            <h3 style={{ fontSize: '1.3rem', fontWeight: 600, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444' }}>
+              <Trash2 style={{ color: '#ef4444' }} />
+              Delete Adventure?
+            </h3>
+            
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '24px', lineHeight: '1.5' }}>
+              Are you sure you want to delete <strong>"{bookToDelete.title}"</strong> forever? This action cannot be undone.
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => setBookToDelete(null)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn btn-primary" 
+                style={{ backgroundColor: '#ef4444', borderColor: '#ef4444', color: '#ffffff' }}
+                onClick={() => {
+                  handleDeleteBook(bookToDelete.id);
+                  setBookToDelete(null);
+                }}
+              >
+                Delete
               </button>
             </div>
           </div>
